@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from './auth';
 import { Headphones } from 'lucide-react';
 import { supabase } from './supabaseClient';
+import { useNavigate } from 'react-router-dom';
 
 interface Organization {
   id: string;
@@ -20,6 +21,7 @@ export function Login() {
   const [selectedOrg, setSelectedOrg] = useState<string>('');
   const [error, setError] = useState<string>('');
   const { signIn } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchOrganizations();
@@ -62,7 +64,10 @@ export function Login() {
       await signIn(email, password);
       const selectedOrgData = organizations.find(org => org.id === selectedOrg);
       if (selectedOrgData) {
-        window.location.href = `/${selectedOrgData.slug}`;
+        localStorage.setItem('selectedOrganization', JSON.stringify(selectedOrgData));
+        navigate(`/${selectedOrgData.slug}`);
+      } else {
+        navigate('/');
       }
     } catch (error: any) {
       console.error('Login error:', error);

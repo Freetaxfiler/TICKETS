@@ -1,24 +1,98 @@
-import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, AlertCircle, Copy, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { toast } from 'react-toastify';
+import { useAuth } from '../auth';
 
 interface CreateTicketModalProps {
   isOpen: boolean;
   onClose: () => void;
   organizationId: string;
   onTicketCreated: () => void;
+  ticket?: any; // Add ticket prop for updates
 }
 
-export default function CreateTicketModal({ isOpen, onClose, organizationId, onTicketCreated }: CreateTicketModalProps) {
+export default function CreateTicketModal({ isOpen, onClose, organizationId, onTicketCreated, ticket }: CreateTicketModalProps) {
   const [formData, setFormData] = useState({
-    clientFileNo: '',
-    mobileNo: '',
-    nameOfClient: '',
-    issueType: '',
-    description: '',
+    ticketNo: ticket?.ticket_no || '',
+    createdOn: ticket?.created_on || new Date().toISOString().split('T')[0],
+    openedBy: ticket?.opened_by || '',
+    clientFileNo: ticket?.client_file_no || '',
+    mobileNo: ticket?.mobile_no || '',
+    nameOfClient: ticket?.name_of_client || '',
+    issueType: ticket?.issue_type || '',
+    description: ticket?.description || '',
+    resolution: ticket?.resolution || '',
+    closedOn: ticket?.closed_on || '',
+    closedBy: ticket?.closed_by || '',
+    status: ticket?.status || 'open'
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const issueTypes = [
+    'Declaration',
+    'Estimation',
+    'Payment',
+    'Filing Update',
+    'Refund Update',
+    'Notice U/s 148',
+    'Notice U/s 133(6)',
+    'Other Notices',
+    'GST Filing',
+    'Referral Bonus',
+    'GST Registration',
+    'Filing Copies',
+    'Computation Copies',
+    'Others'
+  ];
+
+  // Get current user
+  const { user } = useAuth();
+
+  // Reset form when modal opens/closes or ticket changes
+  useEffect(() => {
+    if (ticket) {
+      setFormData({
+        ticketNo: ticket.ticket_no || '',
+        createdOn: ticket.created_on || new Date().toISOString().split('T')[0],
+        openedBy: ticket.opened_by || user?.email || '',
+        clientFileNo: ticket.client_file_no || '',
+        mobileNo: ticket.mobile_no || '',
+        nameOfClient: ticket.name_of_client || '',
+        issueType: ticket.issue_type || '',
+        description: ticket.description || '',
+        resolution: ticket.resolution || '',
+        closedOn: ticket.closed_on || '',
+        closedBy: ticket.closed_by || '',
+        status: ticket.status || 'open'
+      });
+    } else {
+      setFormData({
+        ticketNo: '',
+        createdOn: new Date().toISOString().split('T')[0],
+        openedBy: user?.email || '',
+        clientFileNo: '',
+        mobileNo: '',
+        nameOfClient: '',
+        issueType: '',
+        description: '',
+        resolution: '',
+        closedOn: '',
+        closedBy: '',
+        status: 'open'
+      });
+    }
+  }, [ticket, isOpen, user]);
+
+  const handleCopyTicketNo = () => {
+    if (formData.ticketNo) {
+      navigator.clipboard.writeText(formData.ticketNo);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
+      toast.success('Ticket number copied to clipboard!');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,24 +102,46 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) throw new Error('User not authenticated');
 
-      const { data, error } = await supabase.rpc('create_ticket', {
-        p_opened_by: userData.user.email,
-        p_client_file_no: formData.clientFileNo,
-        p_mobile_no: formData.mobileNo,
-        p_name_of_client: formData.nameOfClient,
-        p_issue_type: formData.issueType,
-        p_description: formData.description,
-        p_organization_id: organizationId
-      });
+      if (ticket) {
+        // Update existing ticket
+        const { error } = await supabase
+          .from('tickets')
+          .update({
+            client_file_no: formData.clientFileNo,
+            mobile_no: formData.mobileNo,
+            name_of_client: formData.nameOfClient,
+            issue_type: formData.issueType,
+            description: formData.description,
+            resolution: formData.resolution,
+            status: formData.status,
+            closed_on: formData.status === 'closed' ? formData.closedOn : null,
+            closed_by: formData.status === 'closed' ? userData.user.email : null
+          })
+          .eq('id', ticket.id);
 
-      if (error) throw error;
+        if (error) throw error;
+        toast.success('Ticket updated successfully');
+      } else {
+        // Create new ticket
+        const { error } = await supabase.rpc('create_ticket', {
+          p_opened_by: userData.user.email,
+          p_client_file_no: formData.clientFileNo,
+          p_mobile_no: formData.mobileNo,
+          p_name_of_client: formData.nameOfClient,
+          p_issue_type: formData.issueType,
+          p_description: formData.description,
+          p_organization_id: organizationId
+        });
 
-      toast.success('Ticket created successfully');
+        if (error) throw error;
+        toast.success('Ticket created successfully');
+      }
+
       onTicketCreated();
       onClose();
     } catch (error: any) {
-      console.error('Error creating ticket:', error);
-      toast.error(error.message || 'Failed to create ticket');
+      console.error('Error saving ticket:', error);
+      toast.error(error.message || 'Failed to save ticket');
     } finally {
       setIsSubmitting(false);
     }
@@ -54,102 +150,230 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md relative">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
-        >
-          <X className="w-6 h-6" />
-        </button>
-
-        <h2 className="text-2xl font-bold mb-6">Create New Ticket</h2>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Client File No
-            </label>
-            <input
-              type="text"
-              required
-              value={formData.clientFileNo}
-              onChange={(e) => setFormData({ ...formData, clientFileNo: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Mobile No
-            </label>
-            <input
-              type="text"
-              required
-              value={formData.mobileNo}
-              onChange={(e) => setFormData({ ...formData, mobileNo: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Name of Client
-            </label>
-            <input
-              type="text"
-              required
-              value={formData.nameOfClient}
-              onChange={(e) => setFormData({ ...formData, nameOfClient: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Issue Type
-            </label>
-            <select
-              required
-              value={formData.issueType}
-              onChange={(e) => setFormData({ ...formData, issueType: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl relative">
+        <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-t-lg p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold text-white flex items-center">
+              <AlertCircle className="w-6 h-6 mr-2" />
+              HELP DESK MANAGER
+            </h2>
+            <button
+              onClick={onClose}
+              className="text-white hover:text-gray-200 transition-colors"
             >
-              <option value="">Select Issue Type</option>
-              <option value="Technical">Technical</option>
-              <option value="Billing">Billing</option>
-              <option value="Account">Account</option>
-              <option value="Other">Other</option>
-            </select>
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          <div className="grid grid-cols-3 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Ticket No #
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={formData.ticketNo}
+                  readOnly
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 pr-10 font-mono"
+                  placeholder="Auto-generated"
+                />
+                {formData.ticketNo && (
+                  <button
+                    type="button"
+                    onClick={handleCopyTicketNo}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-blue-600 focus:outline-none"
+                    title="Copy ticket number"
+                  >
+                    {copied ? (
+                      <CheckCircle2 className="w-5 h-5 text-green-500" />
+                    ) : (
+                      <Copy className="w-5 h-5" />
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Created On
+              </label>
+              <input
+                type="date"
+                value={formData.createdOn}
+                onChange={(e) => setFormData({ ...formData, createdOn: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Opened By
+              </label>
+              <input
+                type="text"
+                value={formData.openedBy}
+                disabled
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                placeholder="Auto-filled with your email"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Client File No
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.clientFileNo}
+                onChange={(e) => setFormData({ ...formData, clientFileNo: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter file number"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Mobile No
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.mobileNo}
+                onChange={(e) => setFormData({ ...formData, mobileNo: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter mobile number"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Name of Client
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.nameOfClient}
+                onChange={(e) => setFormData({ ...formData, nameOfClient: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter client name"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Status
+              </label>
+              <select
+                value={formData.status}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="open">Open</option>
+                <option value="in_progress">In Progress</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Issue Type
+              </label>
+              <select
+                required
+                value={formData.issueType}
+                onChange={(e) => setFormData({ ...formData, issueType: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">Select Issue Type</option>
+                {issueTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Description
+              Description of Issue
             </label>
             <textarea
               required
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 resize-none"
               rows={4}
+              placeholder="Describe the issue in detail..."
             />
           </div>
 
-          <div className="flex justify-end space-x-3 mt-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Resolution of Issue
+            </label>
+            <textarea
+              value={formData.resolution}
+              onChange={(e) => setFormData({ ...formData, resolution: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 resize-none"
+              rows={4}
+              placeholder="Enter resolution details..."
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Closed On
+              </label>
+              <input
+                type="date"
+                value={formData.closedOn}
+                onChange={(e) => setFormData({ ...formData, closedOn: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Closed By
+              </label>
+              <input
+                type="text"
+                value={formData.closedBy}
+                onChange={(e) => setFormData({ ...formData, closedBy: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                placeholder="Enter closer name"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4 border-t">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center"
             >
-              {isSubmitting ? 'Creating...' : 'Create Ticket'}
+              {isSubmitting ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Saving...
+                </>
+              ) : formData.status === 'closed' ? 'Update Ticket' : 'Create Ticket'}
             </button>
           </div>
         </form>

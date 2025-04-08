@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Building2, Calculator } from 'lucide-react';
 import { toast } from 'react-toastify';
@@ -14,14 +14,23 @@ interface Organization {
   theme_accent_color: string;
 }
 
+interface Ticket {
+  id: string;
+  ticket_no: string;
+  name_of_client: string;
+  issue_type: string;
+  status: string;
+  created_on: string;
+}
+
 export default function OnlineTaxFilerDashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
-  const [tickets, setTickets] = useState([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
 
   useEffect(() => {
     const fetchOrganization = async () => {
@@ -47,7 +56,7 @@ export default function OnlineTaxFilerDashboard() {
     if (selectedOrg) {
       fetchTickets();
     }
-  }, [selectedOrg, searchQuery, statusFilter]);
+  }, [selectedOrg, searchQuery]);
 
   const fetchTickets = async () => {
     try {
@@ -66,10 +75,6 @@ export default function OnlineTaxFilerDashboard() {
         );
       }
 
-      if (statusFilter) {
-        query = query.eq('status', statusFilter);
-      }
-
       const { data, error } = await query;
       if (error) throw error;
       setTickets(data || []);
@@ -80,7 +85,13 @@ export default function OnlineTaxFilerDashboard() {
   };
 
   const handleChangeOrg = () => {
-    navigate('/');
+    localStorage.removeItem('selectedOrganization');
+    signOut();
+  };
+
+  const handleTicketClick = (ticket: Ticket) => {
+    setSelectedTicket(ticket);
+    setIsCreateModalOpen(true);
   };
 
   if (!selectedOrg) return null;
@@ -173,8 +184,12 @@ export default function OnlineTaxFilerDashboard() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {tickets.map((ticket: any) => (
-                  <tr key={ticket.id} className="hover:bg-gray-50">
+                {tickets.map((ticket: Ticket) => (
+                  <tr 
+                    key={ticket.id} 
+                    className="hover:bg-gray-50 cursor-pointer"
+                    onClick={() => handleTicketClick(ticket)}
+                  >
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {ticket.ticket_no}
                     </td>
@@ -208,9 +223,13 @@ export default function OnlineTaxFilerDashboard() {
 
       <CreateTicketModal
         isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
+        onClose={() => {
+          setIsCreateModalOpen(false);
+          setSelectedTicket(null);
+        }}
         organizationId={selectedOrg.id}
         onTicketCreated={fetchTickets}
+        ticket={selectedTicket}
       />
     </div>
   );
