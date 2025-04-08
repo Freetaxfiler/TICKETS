@@ -1,0 +1,111 @@
+import { createContext, useContext, useEffect, useState } from 'react';
+import { supabase } from './supabaseClient';
+import { User } from '@supabase/supabase-js';
+
+interface AuthContextType {
+  user: User | null;
+  isAdmin: boolean;
+  signIn: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  isAdmin: false,
+  signIn: async () => {},
+  signOut: async () => {},
+});
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser(session.user);
+        checkUserRole(session.user);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+        await checkUserRole(session.user);
+      } else {
+        setUser(null);
+        setIsAdmin(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function checkUserRole(authUser: User) {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', authUser.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching user role:', error);
+        setIsAdmin(false);
+        return;
+      }
+
+      setIsAdmin(data?.role === 'admin');
+    } catch (error) {
+      console.error('Error checking user role:', error);
+      setIsAdmin(false);
+    }
+  }
+
+  async function signIn(email: string, password: string) {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (data.user) {
+        setUser(data.user);
+        await checkUserRole(data.user);
+      }
+    } catch (error: any) {
+      console.error('Sign in error:', error);
+      throw new Error(error.message || 'Failed to sign in');
+    }
+  }
+
+  async function signOut() {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        throw error;
+      }
+      setUser(null);
+      setIsAdmin(false);
+    } catch (error: any) {
+      console.error('Sign out error:', error);
+      throw new Error(error.message || 'Failed to sign out');
+    }
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, isAdmin, signIn, signOut }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  return useContext(AuthContext);
+}
