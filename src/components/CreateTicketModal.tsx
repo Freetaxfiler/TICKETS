@@ -4,6 +4,11 @@ import { supabase } from '../supabaseClient';
 import { toast } from 'react-toastify';
 import { useAuth } from '../auth';
 
+interface User {
+  id: string;
+  email: string;
+}
+
 interface CreateTicketModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -29,6 +34,8 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
+  const [assignedTo, setAssignedTo] = useState<string>('');
 
   const issueTypes = [
     'Declaration',
@@ -85,6 +92,24 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
     }
   }, [ticket, isOpen, user]);
 
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  const fetchUsers = async () => {
+    try {
+      const { data: users, error } = await supabase
+        .from('users')
+        .select('id, email');
+      
+      if (error) throw error;
+      setUsers(users || []);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      toast.error('Failed to load users');
+    }
+  };
+
   const handleCopyTicketNo = () => {
     if (formData.ticketNo) {
       navigator.clipboard.writeText(formData.ticketNo);
@@ -115,7 +140,8 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
             resolution: formData.resolution,
             status: formData.status,
             closed_on: formData.status === 'closed' ? formData.closedOn : null,
-            closed_by: formData.status === 'closed' ? userData.user.email : null
+            closed_by: formData.status === 'closed' ? userData.user.email : null,
+            assigned_to: assignedTo
           })
           .eq('id', ticket.id);
 
@@ -130,7 +156,8 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
           p_name_of_client: formData.nameOfClient,
           p_issue_type: formData.issueType,
           p_description: formData.description,
-          p_organization_id: organizationId
+          p_organization_id: organizationId,
+          p_assigned_to: assignedTo
         });
 
         if (error) throw error;
@@ -349,6 +376,26 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 placeholder="Enter closer name"
               />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Assign To
+              </label>
+              <select
+                value={assignedTo}
+                onChange={(e) => setAssignedTo(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">Select User</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.email}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

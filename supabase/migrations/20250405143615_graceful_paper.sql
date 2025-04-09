@@ -6,10 +6,13 @@
       - Generates unique ticket numbers in format TKT-YYYYMMDD-NNNN
     - `create_ticket()`
       - Handles ticket creation with proper validation and organization assignment
+    - `assign_ticket()`
+      - Handles ticket assignment to a user
 
   2. Changes
     - Add functions for ticket management
     - Implement automatic ticket number generation
+    - Add function for ticket assignment
 */
 
 -- Function to generate ticket number
@@ -71,5 +74,38 @@ BEGIN
   RETURNING id INTO new_ticket_id;
 
   RETURN new_ticket_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to assign ticket to user
+CREATE OR REPLACE FUNCTION assign_ticket(
+  p_ticket_id uuid,
+  p_assigned_to text
+)
+RETURNS uuid AS $$
+DECLARE
+  v_ticket_id uuid;
+BEGIN
+  UPDATE tickets
+  SET assigned_to = p_assigned_to,
+      assigned_at = NOW()
+  WHERE id = p_ticket_id
+  RETURNING id INTO v_ticket_id;
+
+  INSERT INTO ticket_history (
+    ticket_id,
+    changed_by,
+    field_name,
+    old_value,
+    new_value
+  ) VALUES (
+    p_ticket_id,
+    auth.uid(),
+    'assigned_to',
+    NULL,
+    p_assigned_to
+  );
+
+  RETURN v_ticket_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
