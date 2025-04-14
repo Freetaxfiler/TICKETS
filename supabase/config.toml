@@ -1,0 +1,17 @@
+[auth]
+enabled = true
+
+[auth.email]
+enabled = true
+
+[api]
+enabled = true
+
+[db]
+shadow_database_url = ""
+
+[studio]
+enabled = true
+
+[storage]
+enabled = true

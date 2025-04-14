@@ -14,6 +14,13 @@ interface Organization {
   theme_accent_color: string;
 }
 
+interface DashboardStats {
+  totalTickets: number;
+  openTickets: number;
+  resolvedToday: number;
+  avgResponseTime: number;
+}
+
 export default function Dashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -22,6 +29,12 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [stats, setStats] = useState<DashboardStats>({
+    totalTickets: 0,
+    openTickets: 0,
+    resolvedToday: 0,
+    avgResponseTime: 0
+  });
 
   useEffect(() => {
     const org = localStorage.getItem('selectedOrganization');
@@ -35,6 +48,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (selectedOrg) {
       fetchTickets();
+      fetchDashboardStats();
     }
   }, [selectedOrg, searchQuery, statusFilter]);
 
@@ -65,6 +79,20 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error fetching tickets:', error);
       toast.error('Error fetching tickets');
+    }
+  };
+
+  const fetchDashboardStats = async () => {
+    try {
+      const { data, error } = await supabase.rpc('get_dashboard_stats', {
+        p_organization_id: selectedOrg?.id
+      });
+      
+      if (error) throw error;
+      setStats(data);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      toast.error('Failed to load dashboard statistics');
     }
   };
 
@@ -118,6 +146,25 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="bg-white p-4 rounded-lg shadow">
+            <div className="text-sm text-gray-500 mb-1">Total Tickets</div>
+            <div className="text-2xl font-bold text-gray-900">{stats.totalTickets}</div>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <div className="text-sm text-gray-500 mb-1">Open Tickets</div>
+            <div className="text-2xl font-bold text-blue-600">{stats.openTickets}</div>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <div className="text-sm text-gray-500 mb-1">Resolved Today</div>
+            <div className="text-2xl font-bold text-green-600">{stats.resolvedToday}</div>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <div className="text-sm text-gray-500 mb-1">Avg. Response Time</div>
+            <div className="text-2xl font-bold text-purple-600">{stats.avgResponseTime}h</div>
+          </div>
+        </div>
+
         <div className="bg-white shadow rounded-lg p-6">
           <div className="flex justify-between items-center mb-6">
             <button 

@@ -9,6 +9,13 @@ interface User {
   email: string;
 }
 
+interface FileAttachment {
+  name: string;
+  size: number;
+  type: string;
+  url: string;
+}
+
 interface CreateTicketModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -36,6 +43,8 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
   const [copied, setCopied] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [assignedTo, setAssignedTo] = useState<string>('');
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   const issueTypes = [
     'Declaration',
@@ -52,6 +61,15 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
     'Filing Copies',
     'Computation Copies',
     'Others'
+  ];
+
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const ALLOWED_FILE_TYPES = [
+    'image/jpeg',
+    'image/png',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   ];
 
   // Get current user
@@ -116,6 +134,68 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
       setCopied(true);
       setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
       toast.success('Ticket number copied to clipboard!');
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      for (const file of files) {
+        // File size validation
+        if (file.size > MAX_FILE_SIZE) {
+          toast.error(`File ${file.name} exceeds 10MB limit`);
+          continue;
+        }
+
+        // File type validation
+        if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+          toast.error(`File type not supported for ${file.name}`);
+          continue;
+        }
+
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${user.id}/${Date.now()}-${crypto.randomUUID()}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('ticket-attachments')
+          .upload(fileName, file, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: file.type
+          });
+
+        if (uploadError) {
+          console.error('Upload error:', uploadError);
+          toast.error(`Failed to upload ${file.name}`);
+          continue;
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('ticket-attachments')
+          .getPublicUrl(fileName);
+
+        setAttachments(prev => [...prev, {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          url: publicUrl
+        }]);
+        
+        toast.success(`Successfully uploaded ${file.name}`);
+      }
+    } catch (error: any) {
+      console.error('Error uploading file:', error);
+      toast.error(error.message || 'Failed to upload files');
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      e.target.value = '';
     }
   };
 
@@ -397,6 +477,44 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
                 ))}
               </select>
             </div>
+          </div>
+
+          <div className="space-y-4">
+            <label className="block text-sm font-medium text-gray-700">
+              Attachments
+            </label>
+            <div className="flex items-center space-x-4">
+              <input
+                type="file"
+                multiple
+                onChange={handleFileUpload}
+                className="hidden"
+                id="file-upload"
+                disabled={isUploading}
+              />
+              <label
+                htmlFor="file-upload"
+                className="px-4 py-2 bg-gray-100 rounded cursor-pointer hover:bg-gray-200 transition-colors"
+              >
+                {isUploading ? 'Uploading...' : 'Add Files'}
+              </label>
+            </div>
+            {attachments.length > 0 && (
+              <div className="space-y-2">
+                {attachments.map((file, index) => (
+                  <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                    <span className="text-sm text-gray-600">{file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setAttachments(prev => prev.filter((_, i) => i !== index))}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end space-x-3 pt-4 border-t">
