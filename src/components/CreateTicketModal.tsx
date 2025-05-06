@@ -41,8 +41,9 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [users, setUsers] = useState<User[]>([]);
-  const [assignedTo, setAssignedTo] = useState<string>('');
+  const [selectedUser, setSelectedUser] = useState<string | null>(ticket?.assigned_to || null);
+  const [users, setUsers] = useState<{ id: string, email: string }[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -115,16 +116,19 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
   }, []);
 
   const fetchUsers = async () => {
+    setIsLoadingUsers(true);
     try {
-      const { data: users, error } = await supabase
+      const { data, error } = await supabase
         .from('users')
         .select('id, email');
-      
+
       if (error) throw error;
-      setUsers(users || []);
+      setUsers(data || []);
     } catch (error) {
       console.error('Error fetching users:', error);
       toast.error('Failed to load users');
+    } finally {
+      setIsLoadingUsers(false);
     }
   };
 
@@ -207,22 +211,24 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) throw new Error('User not authenticated');
 
+      const ticketData = {
+        client_file_no: formData.clientFileNo,
+        mobile_no: formData.mobileNo,
+        name_of_client: formData.nameOfClient,
+        issue_type: formData.issueType,
+        description: formData.description,
+        resolution: formData.resolution,
+        status: formData.status,
+        closed_on: formData.status === 'closed' ? formData.closedOn : null,
+        closed_by: formData.status === 'closed' ? userData.user.email : null,
+        assigned_to: selectedUser
+      };
+
       if (ticket) {
         // Update existing ticket
         const { error } = await supabase
           .from('tickets')
-          .update({
-            client_file_no: formData.clientFileNo,
-            mobile_no: formData.mobileNo,
-            name_of_client: formData.nameOfClient,
-            issue_type: formData.issueType,
-            description: formData.description,
-            resolution: formData.resolution,
-            status: formData.status,
-            closed_on: formData.status === 'closed' ? formData.closedOn : null,
-            closed_by: formData.status === 'closed' ? userData.user.email : null,
-            assigned_to: assignedTo
-          })
+          .update(ticketData)
           .eq('id', ticket.id);
 
         if (error) throw error;
@@ -236,8 +242,7 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
           p_name_of_client: formData.nameOfClient,
           p_issue_type: formData.issueType,
           p_description: formData.description,
-          p_organization_id: organizationId,
-          p_assigned_to: assignedTo
+          p_organization_id: organizationId
         });
 
         if (error) throw error;
@@ -465,11 +470,12 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
                 Assign To
               </label>
               <select
-                value={assignedTo}
-                onChange={(e) => setAssignedTo(e.target.value)}
+                value={selectedUser || ''}
+                onChange={(e) => setSelectedUser(e.target.value || null)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 bg-white"
+                disabled={isLoadingUsers}
               >
-                <option value="">Select User</option>
+                <option value="">Unassigned</option>
                 {users.map((user) => (
                   <option key={user.id} value={user.id}>
                     {user.email}

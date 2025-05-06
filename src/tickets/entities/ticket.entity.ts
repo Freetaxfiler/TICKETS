@@ -1,23 +1,56 @@
-import { Entity, Column, PrimaryGeneratedColumn, ManyToOne } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, CreateDateColumn } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 
-@Entity()
+@Entity('tickets')
 export class Ticket {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column()
-  title: string;
+  ticket_no!: string;
 
   @Column()
-  description: string;
+  created_on!: Date;
 
   @Column()
-  status: string;
+  opened_by!: string;
 
-  @ManyToOne(() => User, { nullable: true })
-  assignee: User;
+  @Column()
+  client_file_no!: string;
+
+  @Column()
+  mobile_no!: string;
+
+  @Column()
+  name_of_client!: string;
+
+  @Column()
+  issue_type!: string;
 
   @Column({ nullable: true })
-  assigneeId: number;
+  description: string | null = null;
+
+  @Column({ nullable: true })
+  resolution: string | null = null;
+
+  @Column({ nullable: true })
+  closed_on: Date | null = null;
+
+  @Column({ nullable: true })
+  closed_by: string | null = null;
+
+  @Column({ default: 'open' })
+  status: string = 'open';
+
+  @Column('uuid', { nullable: true })
+  assigned_to: string | null = null;
+
+  @ManyToOne(() => User, user => user.assignedTickets)
+  assignee: User | null = null;
+
+  @Column('uuid')
+  organization_id!: string;
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date;
 }

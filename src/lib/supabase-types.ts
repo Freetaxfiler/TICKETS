@@ -16,6 +16,7 @@ export interface Database {
           attachment_url: string | null
           attachment_name: string | null
           attachment_size: number | null
+          assigned_to: string | null
         }
         Insert: {
           id?: string
@@ -29,6 +30,7 @@ export interface Database {
           attachment_url?: string | null
           attachment_name?: string | null
           attachment_size?: number | null
+          assigned_to?: string | null
         }
         Update: {
           id?: string
@@ -42,6 +44,7 @@ export interface Database {
           attachment_url?: string | null
           attachment_name?: string | null
           attachment_size?: number | null
+          assigned_to?: string | null
         }
       }
       users: {
