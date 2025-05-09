@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Headphones, Search, Building2 } from 'lucide-react';
+import { Search, Building2, Brain } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../auth';
 import CreateTicketModal from './CreateTicketModal';
+import NotificationBell from './NotificationBell';
 
 interface Organization {
   id: string;
@@ -21,11 +22,26 @@ interface DashboardStats {
   avgResponseTime: number;
 }
 
+interface Ticket {
+  id: string;
+  ticket_no: string;
+  created_on: string;
+  name_of_client: string;
+  issue_type: string;
+  status: string;
+  assigned_to: string | null;
+}
+
+interface User {
+  id: string;
+  email: string;
+}
+
 export default function Dashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
-  const [tickets, setTickets] = useState([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -35,6 +51,9 @@ export default function Dashboard() {
     resolvedToday: 0,
     avgResponseTime: 0
   });
+  const [newAssignedTickets, setNewAssignedTickets] = useState<Ticket[]>([]);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
 
   useEffect(() => {
     const org = localStorage.getItem('selectedOrganization');
@@ -49,6 +68,8 @@ export default function Dashboard() {
     if (selectedOrg) {
       fetchTickets();
       fetchDashboardStats();
+      checkNewAssignedTickets();
+      fetchUsers();
     }
   }, [selectedOrg, searchQuery, statusFilter]);
 
@@ -96,9 +117,42 @@ export default function Dashboard() {
     }
   };
 
+  const checkNewAssignedTickets = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('tickets')
+        .select('*')
+        .eq('assigned_to', user?.id)
+        .eq('status', 'new');
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setNewAssignedTickets(data);
+      }
+    } catch (error) {
+      console.error('Error checking new assigned tickets:', error);
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const { data, error } = await supabase.from('users').select('*');
+      if (error) throw error;
+      setUsers(data || []);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    }
+  };
+
   const handleChangeOrg = () => {
     localStorage.removeItem('selectedOrganization');
     navigate('/');
+  };
+
+  const handleTicketClick = (ticket: Ticket) => {
+    setSelectedTicket(ticket);
+    setIsCreateModalOpen(true);
   };
 
   if (!selectedOrg) return null;
@@ -116,59 +170,60 @@ export default function Dashboard() {
       <header className="shadow" style={headerStyle}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <Headphones className="w-12 h-12 text-white mr-4" />
+            <div className="flex items-center space-x-4">
+              <Brain className="w-8 h-8 text-white" />
               <div>
-                <div className="text-2xl font-bold text-white">{selectedOrg.name}</div>
-                <div className="text-sm text-white opacity-90">Help Desk Manager</div>
+                <div className="text-2xl font-bold text-white">{selectedOrg?.name}</div>
+                <div className="text-sm text-white/80">Help Desk Manager</div>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={handleChangeOrg}
-                className="p-2 text-white rounded-full hover:bg-white/10"
-                title="Change Organization"
-              >
-                <Building2 className="w-6 h-6" />
-              </button>
-              <span className="text-sm text-white">
-                {user?.email}
-              </span>
-              <button
-                onClick={() => signOut()}
-                className="px-4 py-2 rounded text-white border border-white/30 hover:bg-white/10"
-              >
-                Sign Out
-              </button>
+            <div className="flex items-center space-x-6">
+              <NotificationBell notifications={newAssignedTickets} setNotifications={setNewAssignedTickets} />
+              <div className="flex items-center space-x-4">
+                <span className="text-white">{user?.email}</span>
+                <button
+                  onClick={handleChangeOrg}
+                  className="p-2 text-white rounded-full hover:bg-white/10"
+                  title="Change Organization"
+                >
+                  <Building2 className="w-6 h-6" />
+                </button>
+                <button
+                  onClick={() => signOut()}
+                  className="px-4 py-2 rounded text-white border border-white/30 hover:bg-white/10"
+                >
+                  Sign Out
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="text-sm text-gray-500 mb-1">Total Tickets</div>
-            <div className="text-2xl font-bold text-gray-900">{stats.totalTickets}</div>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="dashboard-card">
+            <div className="text-2xl font-bold">{stats.totalTickets}</div>
+            <div className="text-gray-500">Total Tickets</div>
           </div>
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="text-sm text-gray-500 mb-1">Open Tickets</div>
-            <div className="text-2xl font-bold text-blue-600">{stats.openTickets}</div>
+          <div className="dashboard-card">
+            <div className="text-2xl font-bold">{stats.openTickets}</div>
+            <div className="text-gray-500">Open Tickets</div>
           </div>
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="text-sm text-gray-500 mb-1">Resolved Today</div>
-            <div className="text-2xl font-bold text-green-600">{stats.resolvedToday}</div>
+          <div className="dashboard-card">
+            <div className="text-2xl font-bold">{stats.resolvedToday}</div>
+            <div className="text-gray-500">Resolved Today</div>
           </div>
-          <div className="bg-white p-4 rounded-lg shadow">
-            <div className="text-sm text-gray-500 mb-1">Avg. Response Time</div>
-            <div className="text-2xl font-bold text-purple-600">{stats.avgResponseTime}h</div>
+          <div className="dashboard-card">
+            <div className="text-2xl font-bold">{stats.avgResponseTime}h</div>
+            <div className="text-gray-500">Avg. Response Time</div>
           </div>
         </div>
 
-        <div className="bg-white shadow rounded-lg p-6">
+        <div className="dashboard-card">
           <div className="flex justify-between items-center mb-6">
             <button 
-              className="px-4 py-2 rounded text-white"
+              className="px-4 py-2 text-white rounded-md"
               style={accentStyle}
               onClick={() => setIsCreateModalOpen(true)}
             >
@@ -188,7 +243,7 @@ export default function Dashboard() {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-2 border rounded-md"
+                className="px-4 py-2 border rounded-md min-w-[150px]"
               >
                 <option value="">All Status</option>
                 <option value="open">Open</option>
@@ -198,42 +253,32 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-50">
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Ticket No
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Client
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Issue Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Created
-                  </th>
+          <div className="table-container">
+            <table>
+              <thead className="bg-gray-50">
+                <tr>
+                  <th>Ticket No</th>
+                  <th>Client</th>
+                  <th>Issue Type</th>
+                  <th>Assigned To</th>
+                  <th>Status</th>
+                  <th>Created</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {tickets.map((ticket: any) => (
-                  <tr key={ticket.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {ticket.ticket_no}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {ticket.name_of_client}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {ticket.issue_type}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                {tickets.map((ticket: Ticket) => (
+                  <tr 
+                    key={ticket.id} 
+                    className="hover:bg-gray-50 cursor-pointer"
+                    onClick={() => handleTicketClick(ticket)}
+                  >
+                    <td className="font-medium">{ticket.ticket_no}</td>
+                    <td>{ticket.name_of_client}</td>
+                    <td>{ticket.issue_type}</td>
+                    <td>{ticket.assigned_to ? users.find(u => u.id === ticket.assigned_to)?.email || 'Unknown' : 'Unassigned'}</td>
+                    <td>
                       <span
-                        className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                        className="status-badge"
                         style={{
                           backgroundColor: selectedOrg.theme_accent_color + '20',
                           color: selectedOrg.theme_accent_color
@@ -242,9 +287,7 @@ export default function Dashboard() {
                         {ticket.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(ticket.created_on).toLocaleDateString()}
-                    </td>
+                    <td>{new Date(ticket.created_on).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -258,6 +301,7 @@ export default function Dashboard() {
         onClose={() => setIsCreateModalOpen(false)}
         organizationId={selectedOrg.id}
         onTicketCreated={fetchTickets}
+        ticket={selectedTicket}
       />
     </div>
   );

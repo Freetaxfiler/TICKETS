@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Building2, DollarSign } from 'lucide-react';
+import { Search, Building2, DollarSign, CheckCircle2, Clock, Users, AlertCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../auth';
 import CreateTicketModal from '../CreateTicketModal';
+import NotificationBell from '../NotificationBell';
 
 interface Organization {
   id: string;
@@ -21,6 +22,19 @@ interface Ticket {
   issue_type: string;
   status: string;
   created_on: string;
+  assigned_to?: string;
+}
+
+interface User {
+  id: string;
+  email: string;
+}
+
+interface TicketStats {
+  assigned: number;
+  closed: number;
+  open: number;
+  inProgress: number;
 }
 
 export default function USeTaxFilerDashboard() {
@@ -28,9 +42,18 @@ export default function USeTaxFilerDashboard() {
   const navigate = useNavigate();
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [newAssignedTickets, setNewAssignedTickets] = useState<Ticket[]>([]);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [ticketStats, setTicketStats] = useState<TicketStats>({
+    assigned: 0,
+    closed: 0,
+    open: 0,
+    inProgress: 0
+  });
 
   useEffect(() => {
     const fetchOrganization = async () => {
@@ -53,10 +76,25 @@ export default function USeTaxFilerDashboard() {
   }, [navigate]);
 
   useEffect(() => {
-    if (selectedOrg) {
+    const fetchUsers = async () => {
+      const { data, error } = await supabase.from('users').select('*');
+      if (error) {
+        console.error('Error fetching users:', error);
+        return;
+      }
+      setUsers(data || []);
+    };
+
+    fetchUsers();
+  }, []);
+
+  useEffect(() => {
+    if (selectedOrg && user) {
       fetchTickets();
+      fetchTicketStats();
+      checkNewAssignedTickets();
     }
-  }, [selectedOrg, searchQuery]);
+  }, [selectedOrg, searchQuery, statusFilter]);
 
   const fetchTickets = async () => {
     try {
@@ -75,12 +113,72 @@ export default function USeTaxFilerDashboard() {
         );
       }
 
+      if (statusFilter) {
+        query = query.eq('status', statusFilter);
+      }
+
       const { data, error } = await query;
       if (error) throw error;
       setTickets(data || []);
     } catch (error) {
       console.error('Error fetching tickets:', error);
       toast.error('Error fetching tickets');
+    }
+  };
+
+  const fetchTicketStats = async () => {
+    if (!selectedOrg) return;
+
+    try {
+      const [assigned, closed, open, inProgress] = await Promise.all([
+        supabase
+          .from('tickets')
+          .select('*', { count: 'exact' })
+          .eq('organization_id', selectedOrg.id)
+          .not('assigned_to', 'is', null),
+        supabase
+          .from('tickets')
+          .select('*', { count: 'exact' })
+          .eq('organization_id', selectedOrg.id)
+          .eq('status', 'closed'),
+        supabase
+          .from('tickets')
+          .select('*', { count: 'exact' })
+          .eq('organization_id', selectedOrg.id)
+          .eq('status', 'open'),
+        supabase
+          .from('tickets')
+          .select('*', { count: 'exact' })
+          .eq('organization_id', selectedOrg.id)
+          .eq('status', 'in_progress')
+      ]);
+
+      setTicketStats({
+        assigned: assigned.count || 0,
+        closed: closed.count || 0,
+        open: open.count || 0,
+        inProgress: inProgress.count || 0
+      });
+    } catch (error) {
+      console.error('Error fetching ticket stats:', error);
+    }
+  };
+
+  const checkNewAssignedTickets = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('tickets')
+        .select('*')
+        .eq('assigned_to', user?.id)
+        .eq('status', 'new');
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setNewAssignedTickets(data);
+      }
+    } catch (error) {
+      console.error('Error checking new assigned tickets:', error);
     }
   };
 
@@ -92,6 +190,10 @@ export default function USeTaxFilerDashboard() {
   const handleTicketClick = (ticket: Ticket) => {
     setSelectedTicket(ticket);
     setIsCreateModalOpen(true);
+  };
+
+  const handleStatusClick = (status: string) => {
+    setStatusFilter(status === statusFilter ? '' : status);
   };
 
   if (!selectedOrg) return null;
@@ -117,6 +219,7 @@ export default function USeTaxFilerDashboard() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              <NotificationBell notifications={newAssignedTickets} setNotifications={setNewAssignedTickets} />
               <button
                 onClick={handleChangeOrg}
                 className="p-2 text-white rounded-full hover:bg-white/10"
@@ -139,6 +242,68 @@ export default function USeTaxFilerDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div 
+            className={`bg-white p-6 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer ${
+              statusFilter === 'assigned' ? 'ring-2 ring-blue-500' : ''
+            }`}
+            onClick={() => handleStatusClick('assigned')}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-gray-500">Assigned Tickets</div>
+                <div className="text-2xl font-bold mt-2">{ticketStats.assigned}</div>
+              </div>
+              <Users className="w-8 h-8 text-blue-500" />
+            </div>
+          </div>
+
+          <div 
+            className={`bg-white p-6 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer ${
+              statusFilter === 'closed' ? 'ring-2 ring-green-500' : ''
+            }`}
+            onClick={() => handleStatusClick('closed')}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-gray-500">Closed Tickets</div>
+                <div className="text-2xl font-bold mt-2">{ticketStats.closed}</div>
+              </div>
+              <CheckCircle2 className="w-8 h-8 text-green-500" />
+            </div>
+          </div>
+
+          <div 
+            className={`bg-white p-6 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer ${
+              statusFilter === 'open' ? 'ring-2 ring-red-500' : ''
+            }`}
+            onClick={() => handleStatusClick('open')}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-gray-500">Open Tickets</div>
+                <div className="text-2xl font-bold mt-2">{ticketStats.open}</div>
+              </div>
+              <AlertCircle className="w-8 h-8 text-red-500" />
+            </div>
+          </div>
+
+          <div 
+            className={`bg-white p-6 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer ${
+              statusFilter === 'in_progress' ? 'ring-2 ring-yellow-500' : ''
+            }`}
+            onClick={() => handleStatusClick('in_progress')}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-gray-500">In Progress</div>
+                <div className="text-2xl font-bold mt-2">{ticketStats.inProgress}</div>
+              </div>
+              <Clock className="w-8 h-8 text-yellow-500" />
+            </div>
+          </div>
+        </div>
+
         <div className="bg-white shadow rounded-lg p-6">
           <div className="flex justify-between items-center mb-6">
             <button 
@@ -176,6 +341,9 @@ export default function USeTaxFilerDashboard() {
                     Issue Type
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Assigned To
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -198,6 +366,9 @@ export default function USeTaxFilerDashboard() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {ticket.issue_type}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {ticket.assigned_to ? users.find(u => u.id === ticket.assigned_to)?.email || 'Unknown' : 'Unassigned'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span

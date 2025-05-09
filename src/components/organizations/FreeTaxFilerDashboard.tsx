@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Building2, FileText } from 'lucide-react';
+import { Search, Building2, FileText, CheckCircle2, Clock, Users, AlertCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../auth';
 import CreateTicketModal from '../CreateTicketModal';
+import NotificationBell from '../NotificationBell';
 
 interface Organization {
   id: string;
@@ -14,6 +15,13 @@ interface Organization {
   theme_accent_color: string;
 }
 
+interface TicketStats {
+  assigned: number;
+  closed: number;
+  open: number;
+  inProgress: number;
+}
+
 interface Ticket {
   id: string;
   ticket_no: string;
@@ -21,7 +29,12 @@ interface Ticket {
   issue_type: string;
   status: string;
   created_on: string;
-  // Add other ticket fields as needed
+  assigned_to?: string;
+}
+
+interface User {
+  id: string;
+  email: string;
 }
 
 export default function FreeTaxFilerDashboard() {
@@ -29,9 +42,18 @@ export default function FreeTaxFilerDashboard() {
   const navigate = useNavigate();
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [newAssignedTickets, setNewAssignedTickets] = useState<Ticket[]>([]);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [ticketStats, setTicketStats] = useState<TicketStats>({
+    assigned: 0,
+    closed: 0,
+    open: 0,
+    inProgress: 0
+  });
 
   useEffect(() => {
     const fetchOrganization = async () => {
@@ -54,10 +76,69 @@ export default function FreeTaxFilerDashboard() {
   }, [navigate]);
 
   useEffect(() => {
-    if (selectedOrg) {
+    if (selectedOrg && user) {
       fetchTickets();
+      checkNewAssignedTickets();
     }
   }, [selectedOrg, searchQuery]);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      const { data, error } = await supabase.from('users').select('*');
+      if (error) {
+        console.error('Error fetching users:', error);
+        return;
+      }
+      setUsers(data || []);
+    };
+
+    fetchUsers();
+  }, []);
+
+  const fetchTicketStats = async () => {
+    if (!selectedOrg) return;
+
+    try {
+      const [assigned, closed, open, inProgress] = await Promise.all([
+        supabase
+          .from('tickets')
+          .select('*', { count: 'exact' })
+          .eq('organization_id', selectedOrg.id)
+          .not('assigned_to', 'is', null),
+        supabase
+          .from('tickets')
+          .select('*', { count: 'exact' })
+          .eq('organization_id', selectedOrg.id)
+          .eq('status', 'closed'),
+        supabase
+          .from('tickets')
+          .select('*', { count: 'exact' })
+          .eq('organization_id', selectedOrg.id)
+          .eq('status', 'open'),
+        supabase
+          .from('tickets')
+          .select('*', { count: 'exact' })
+          .eq('organization_id', selectedOrg.id)
+          .eq('status', 'in_progress')
+      ]);
+
+      setTicketStats({
+        assigned: assigned.count || 0,
+        closed: closed.count || 0,
+        open: open.count || 0,
+        inProgress: inProgress.count || 0
+      });
+    } catch (error) {
+      console.error('Error fetching ticket stats:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedOrg) {
+      fetchTickets();
+      fetchTicketStats();
+    }
+  }, [selectedOrg, searchQuery, statusFilter]);
 
   const fetchTickets = async () => {
     try {
@@ -76,12 +157,34 @@ export default function FreeTaxFilerDashboard() {
         );
       }
 
+      if (statusFilter) {
+        query = query.eq('status', statusFilter);
+      }
+
       const { data, error } = await query;
       if (error) throw error;
       setTickets(data || []);
     } catch (error) {
       console.error('Error fetching tickets:', error);
       toast.error('Error fetching tickets');
+    }
+  };
+
+  const checkNewAssignedTickets = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('tickets')
+        .select('*')
+        .eq('assigned_to', user?.id)
+        .eq('status', 'new');
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setNewAssignedTickets(data);
+      }
+    } catch (error) {
+      console.error('Error checking new assigned tickets:', error);
     }
   };
 
@@ -93,6 +196,10 @@ export default function FreeTaxFilerDashboard() {
   const handleTicketClick = (ticket: Ticket) => {
     setSelectedTicket(ticket);
     setIsCreateModalOpen(true);
+  };
+
+  const handleStatusClick = (status: string) => {
+    setStatusFilter(status === statusFilter ? '' : status);
   };
 
   if (!selectedOrg) return null;
@@ -118,6 +225,7 @@ export default function FreeTaxFilerDashboard() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              <NotificationBell notifications={newAssignedTickets} setNotifications={setNewAssignedTickets} />
               <button
                 onClick={handleChangeOrg}
                 className="p-2 text-white rounded-full hover:bg-white/10"
@@ -140,41 +248,108 @@ export default function FreeTaxFilerDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white shadow rounded-lg p-6">
-          <div className="flex justify-between items-center mb-6">
-            <button 
-              className="px-4 py-2 rounded text-white"
-              style={accentStyle}
-              onClick={() => setIsCreateModalOpen(true)}
-            >
-              Raise new ticket
-            </button>
-            <div className="flex items-center space-x-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search tickets..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 pr-4 py-2 border rounded-md w-96"
-                />
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div 
+            className={`bg-white p-6 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer ${
+              statusFilter === '' ? 'ring-2 ring-blue-500' : ''
+            }`}
+            onClick={() => handleStatusClick('assigned')}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-gray-500">Assigned Tickets</div>
+                <div className="text-2xl font-bold mt-2">{ticketStats.assigned}</div>
+              </div>
+              <Users className="w-8 h-8 text-blue-500" />
+            </div>
+          </div>
+
+          <div 
+            className={`bg-white p-6 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer ${
+              statusFilter === 'closed' ? 'ring-2 ring-green-500' : ''
+            }`}
+            onClick={() => handleStatusClick('closed')}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-gray-500">Closed Tickets</div>
+                <div className="text-2xl font-bold mt-2">{ticketStats.closed}</div>
+              </div>
+              <CheckCircle2 className="w-8 h-8 text-green-500" />
+            </div>
+          </div>
+
+          <div 
+            className={`bg-white p-6 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer ${
+              statusFilter === 'open' ? 'ring-2 ring-red-500' : ''
+            }`}
+            onClick={() => handleStatusClick('open')}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-gray-500">Open Tickets</div>
+                <div className="text-2xl font-bold mt-2">{ticketStats.open}</div>
+              </div>
+              <AlertCircle className="w-8 h-8 text-red-500" />
+            </div>
+          </div>
+
+          <div 
+            className={`bg-white p-6 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer ${
+              statusFilter === 'in_progress' ? 'ring-2 ring-yellow-500' : ''
+            }`}
+            onClick={() => handleStatusClick('in_progress')}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm text-gray-500">In Progress</div>
+                <div className="text-2xl font-bold mt-2">{ticketStats.inProgress}</div>
+              </div>
+              <Clock className="w-8 h-8 text-yellow-500" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white shadow overflow-hidden sm:rounded-lg">
+          <div className="px-4 py-5 border-b border-gray-200 sm:px-6">
+            <div className="flex justify-between items-center">
+              <button 
+                className="px-4 py-2 rounded text-white"
+                style={accentStyle}
+                onClick={() => setIsCreateModalOpen(true)}
+              >
+                Raise new ticket
+              </button>
+              <div className="flex items-center space-x-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search tickets..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10 pr-4 py-2 border rounded-md w-96"
+                  />
+                </div>
               </div>
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Ticket No
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Client
+                    Client Name
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Issue Type
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Assigned To
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
@@ -200,13 +375,18 @@ export default function FreeTaxFilerDashboard() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {ticket.issue_type}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {ticket.assigned_to ? users.find(u => u.id === ticket.assigned_to)?.email || 'Unknown' : 'Unassigned'}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
-                        className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
-                        style={{
-                          backgroundColor: selectedOrg.theme_accent_color + '20',
-                          color: selectedOrg.theme_accent_color
-                        }}
+                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          ticket.status === 'open'
+                            ? 'bg-red-100 text-red-800'
+                            : ticket.status === 'in_progress'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-green-100 text-green-800'
+                        }`}
                       >
                         {ticket.status}
                       </span>
@@ -222,16 +402,14 @@ export default function FreeTaxFilerDashboard() {
         </div>
       </main>
 
-      <CreateTicketModal
-        isOpen={isCreateModalOpen}
-        onClose={() => {
-          setIsCreateModalOpen(false);
-          setSelectedTicket(null);
-        }}
-        organizationId={selectedOrg.id}
-        onTicketCreated={fetchTickets}
-        ticket={selectedTicket}
-      />
+      {isCreateModalOpen && selectedOrg && (
+        <CreateTicketModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          organizationId={selectedOrg.id}
+          onTicketCreated={() => fetchTickets()}
+        />
+      )}
     </div>
   );
 }

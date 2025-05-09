@@ -4,11 +4,6 @@ import { supabase } from '../supabaseClient';
 import { toast } from 'react-toastify';
 import { useAuth } from '../auth';
 
-interface User {
-  id: string;
-  email: string;
-}
-
 interface FileAttachment {
   name: string;
   size: number;
@@ -21,7 +16,7 @@ interface CreateTicketModalProps {
   onClose: () => void;
   organizationId: string;
   onTicketCreated: () => void;
-  ticket?: any; // Add ticket prop for updates
+  ticket?: any;
 }
 
 export default function CreateTicketModal({ isOpen, onClose, organizationId, onTicketCreated, ticket }: CreateTicketModalProps) {
@@ -42,6 +37,7 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectedUser, setSelectedUser] = useState<string | null>(ticket?.assigned_to || null);
+  const [selectedClosedBy, setSelectedClosedBy] = useState<string | null>(ticket?.closed_by || null);
   const [users, setUsers] = useState<{ id: string, email: string }[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
@@ -93,6 +89,8 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
         closedBy: ticket.closed_by || '',
         status: ticket.status || 'open'
       });
+      setSelectedUser(ticket.assigned_to || null);
+      setSelectedClosedBy(ticket.closed_by || null);
     } else {
       setFormData({
         ticketNo: '',
@@ -108,6 +106,8 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
         closedBy: '',
         status: 'open'
       });
+      setSelectedUser(null);
+      setSelectedClosedBy(null);
     }
   }, [ticket, isOpen, user]);
 
@@ -220,8 +220,9 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
         resolution: formData.resolution,
         status: formData.status,
         closed_on: formData.status === 'closed' ? formData.closedOn : null,
-        closed_by: formData.status === 'closed' ? userData.user.email : null,
-        assigned_to: selectedUser
+        closed_by: selectedClosedBy, // Use selectedClosedBy instead of formData.closedBy
+        assigned_to: selectedUser,
+        organization_id: organizationId
       };
 
       if (ticket) {
@@ -232,20 +233,30 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
           .eq('id', ticket.id);
 
         if (error) throw error;
+        
+        // Send notification for assignment change if needed
+        if (selectedUser && selectedUser !== ticket.assigned_to) {
+          await supabase.rpc('notify_ticket_assignment', {
+            p_ticket_id: ticket.id,
+            p_assigned_to: selectedUser
+          });
+        }
+        
         toast.success('Ticket updated successfully');
       } else {
         // Create new ticket
-        const { error } = await supabase.rpc('create_ticket', {
+        const { error: createError } = await supabase.rpc('create_ticket', {
           p_opened_by: userData.user.email,
           p_client_file_no: formData.clientFileNo,
           p_mobile_no: formData.mobileNo,
           p_name_of_client: formData.nameOfClient,
           p_issue_type: formData.issueType,
           p_description: formData.description,
-          p_organization_id: organizationId
+          p_organization_id: organizationId,
+          p_assigned_to: selectedUser
         });
 
-        if (error) throw error;
+        if (createError) throw createError;
         toast.success('Ticket created successfully');
       }
 
@@ -262,13 +273,13 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl relative">
+    <div className="modal-container">
+      <div className="modal-content">
         <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-t-lg p-6">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold text-white flex items-center">
               <AlertCircle className="w-6 h-6 mr-2" />
-              HELP DESK MANAGER
+              {ticket ? 'Edit Ticket' : 'New Ticket'}
             </h2>
             <button
               onClick={onClose}
@@ -279,7 +290,7 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto">
           <div className="grid grid-cols-3 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -454,13 +465,22 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Closed By
               </label>
-              <input
-                type="text"
-                value={formData.closedBy}
-                onChange={(e) => setFormData({ ...formData, closedBy: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                placeholder="Enter closer name"
-              />
+              <select
+                value={selectedClosedBy || ''}
+                onChange={(e) => setSelectedClosedBy(e.target.value || null)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 bg-white"
+                disabled={isLoadingUsers}
+              >
+                <option value="">Select user</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.email}
+                  </option>
+                ))}
+              </select>
+              {isLoadingUsers && (
+                <div className="mt-2 text-sm text-gray-500">Loading users...</div>
+              )}
             </div>
           </div>
 
@@ -482,6 +502,9 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
                   </option>
                 ))}
               </select>
+              {isLoadingUsers && (
+                <div className="mt-2 text-sm text-gray-500">Loading users...</div>
+              )}
             </div>
           </div>
 
@@ -523,7 +546,7 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
             )}
           </div>
 
-          <div className="flex justify-end space-x-3 pt-4 border-t">
+          <div className="flex justify-end space-x-3 pt-4 border-t sticky bottom-0 bg-white">
             <button
               type="button"
               onClick={onClose}
@@ -544,7 +567,7 @@ export default function CreateTicketModal({ isOpen, onClose, organizationId, onT
                   </svg>
                   Saving...
                 </>
-              ) : formData.status === 'closed' ? 'Update Ticket' : 'Create Ticket'}
+              ) : ticket ? 'Update Ticket' : 'Create Ticket'}
             </button>
           </div>
         </form>
