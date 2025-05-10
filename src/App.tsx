@@ -1,4 +1,3 @@
-import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -9,6 +8,7 @@ import OnlineTaxFilerDashboard from './components/organizations/OnlineTaxFilerDa
 import USeTaxFilerDashboard from './components/organizations/USeTaxFilerDashboard';
 import AIUSTaxDashboard from './components/organizations/AIUSTaxDashboard';
 import TestComponents from './components/TestComponents';
+import { PrivateRoute } from './components/PrivateRoute.tsx';
 
 function App() {
   const { user } = useAuth();
@@ -23,34 +23,57 @@ function App() {
     );
   }
 
+  // If user is not authenticated, show login or redirect to login page
   if (!user) {
-    return (
-      <>
-        <ToastContainer />
-        <Login />
-      </>
-    );
+    if (window.location.pathname === '/login') {
+      return (
+        <>
+          <ToastContainer />
+          <Login />
+        </>
+      );
+    }
+    return <Navigate to="/login" replace />;
   }
 
-  // Get selected organization from localStorage
-  const selectedOrg = localStorage.getItem('selectedOrganization');
-  if (!selectedOrg) {
-    return <Navigate to="/" replace />;
-  }
-
-  const org = JSON.parse(selectedOrg);
-  
   return (
     <>
       <ToastContainer />
       <Routes>
-        <Route path="/" element={<Navigate to={`/${org.slug}`} replace />} />
-        <Route path="/free-tax-filer" element={<FreeTaxFilerDashboard />} />
-        <Route path="/online-tax-filer" element={<OnlineTaxFilerDashboard />} />
-        <Route path="/use-tax-filer" element={<USeTaxFilerDashboard />} />
-        <Route path="/aius-tax" element={<AIUSTaxDashboard />} />
-        <Route path="/test" element={<TestComponents />} />
-        <Route path="*" element={<Navigate to={`/${org.slug}`} replace />} />
+        <Route
+          path="/"
+          element={
+            <PrivateRoute>
+              {() => {
+                const selectedOrg = localStorage.getItem('selectedOrganization');
+                if (!selectedOrg) {
+                  return null; // or a component to select organization
+                }
+                const org = JSON.parse(selectedOrg);
+                return <Navigate to={`/org/${org.slug}`} replace />;
+              }}
+            </PrivateRoute>
+          }
+        />
+        <Route 
+          path="/org/free-tax-filer" 
+          element={<PrivateRoute><FreeTaxFilerDashboard /></PrivateRoute>} 
+        />
+        <Route 
+          path="/org/online-tax-filer" 
+          element={<PrivateRoute><OnlineTaxFilerDashboard /></PrivateRoute>} 
+        />
+        <Route 
+          path="/org/us-tax-filer" 
+          element={<PrivateRoute><USeTaxFilerDashboard /></PrivateRoute>} 
+        />
+        <Route 
+          path="/org/aius-tax" 
+          element={<PrivateRoute><AIUSTaxDashboard /></PrivateRoute>} 
+        />
+        <Route path="/login" element={<Login />} />
+        {/* Catch-all route for unknown paths */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>
   );

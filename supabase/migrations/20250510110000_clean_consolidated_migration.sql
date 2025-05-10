@@ -287,6 +287,18 @@ ALTER TABLE ticket_history ENABLE ROW LEVEL SECURITY;
 
 -- [ 9. RLS Policies ]
 
+-- Drop existing policies first
+DROP POLICY IF EXISTS "Users can view all users" ON users;
+DROP POLICY IF EXISTS "System can create users" ON users;
+DROP POLICY IF EXISTS "Users can update their own profile" ON users;
+DROP POLICY IF EXISTS "Anyone can view organizations" ON organizations;
+DROP POLICY IF EXISTS "Users can view their organizations" ON user_organizations;
+DROP POLICY IF EXISTS "Admins can manage organization members" ON user_organizations;
+DROP POLICY IF EXISTS "Users can access tickets in their organizations" ON tickets;
+DROP POLICY IF EXISTS "Users can view ticket history in their organizations" ON ticket_history;
+DROP POLICY IF EXISTS "Users can upload ticket attachments" ON storage.objects;
+DROP POLICY IF EXISTS "Organization members can view attachments" ON storage.objects;
+
 -- User policies
 CREATE POLICY "Users can view all users"
   ON users FOR SELECT TO authenticated
@@ -302,9 +314,10 @@ CREATE POLICY "Users can update their own profile"
   WITH CHECK (auth.uid() = id);
 
 -- Organization policies
+DROP POLICY IF EXISTS "Anyone can view organizations" ON organizations;
 CREATE POLICY "Anyone can view organizations"
   ON organizations FOR SELECT
-  TO authenticated USING (true);
+  TO public USING (true);
 
 -- User-Organization policies
 CREATE POLICY "Users can view their organizations"
