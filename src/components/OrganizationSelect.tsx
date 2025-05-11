@@ -21,17 +21,42 @@ export default function OrganizationSelect() {
     fetchOrganizations();
   }, []);
 
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
   const fetchOrganizations = async () => {
     try {
+      setLoading(true);
+      setError(null);
+      // Get user's organizations through the junction table
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+
       const { data, error } = await supabase
-        .from('organizations')
-        .select('*')
-        .order('name');
+        .from('user_organizations')
+        .select(`
+          organizations (
+            id,
+            name,
+            slug,
+            theme_primary_color,
+            theme_secondary_color,
+            theme_accent_color,
+            logo_url
+          )
+        `)
+        .eq('user_id', userData.user?.id);
 
       if (error) throw error;
-      setOrganizations(data || []);
-    } catch (error) {
+
+      // Transform the nested data structure
+      const orgs = data?.map(item => item.organizations) || [];
+      setOrganizations(orgs);
+    } catch (error: any) {
       console.error('Error fetching organizations:', error);
+      setError(error.message || 'Failed to load organizations');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -55,7 +80,28 @@ export default function OrganizationSelect() {
           <p className="mt-2 text-sm text-gray-600">
             Choose an organization to access its help desk system
           </p>
+          {error && (
+            <div className="mt-4 p-4 bg-red-50 rounded-md">
+              <p className="text-sm text-red-700">{error}</p>
+              <button
+                onClick={fetchOrganizations}
+                className="mt-2 text-sm text-red-600 hover:text-red-500"
+              >
+                Try Again
+              </button>
+            </div>
+          )}
         </div>
+        
+        {loading ? (
+          <div className="flex justify-center items-center min-h-[200px]">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+          </div>
+        ) : organizations.length === 0 ? (
+          <div className="text-center p-8 bg-white rounded-lg shadow">
+            <p className="text-gray-600">No organizations found. Please contact your administrator.</p>
+          </div>
+        ) : (
 
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           {organizations.map((org, index) => (
@@ -99,6 +145,7 @@ export default function OrganizationSelect() {
             </div>
           ))}
         </div>
+        )}
       </div>
     </div>
   );

@@ -81,6 +81,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (data.user) {
+        // Check if user exists in users table
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', data.user.id)
+          .single();
+
+        if (userError && userError.code !== 'PGRST116') {
+          throw userError;
+        }
+
+        // If user doesn't exist in users table, create them
+        if (!userData) {
+          const { error: insertError } = await supabase
+            .from('users')
+            .insert([
+              {
+                id: data.user.id,
+                email: data.user.email,
+                name: data.user.email?.split('@')[0],
+              },
+            ]);
+
+          if (insertError) {
+            throw insertError;
+          }
+        }
+
         setUser(data.user);
         await checkUserRole(data.user);
       }
