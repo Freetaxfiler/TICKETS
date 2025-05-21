@@ -176,7 +176,7 @@ export default function AIUSTaxDashboard() {
         .from('tickets')
         .select('*')
         .eq('assigned_to', user?.id)
-        .eq('status', 'new');
+        .eq('status', 'open');
 
       if (error) throw error;
 

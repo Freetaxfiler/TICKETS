@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .from('users')
         .select('role')
         .eq('id', authUser.id)
-        .maybeSingle();
+        .single();
 
       if (error) {
         console.error('Error fetching user role:', error);
@@ -101,6 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 id: data.user.id,
                 email: data.user.email,
                 name: data.user.email?.split('@')[0],
+                role: 'user'
               },
             ]);
 
